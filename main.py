@@ -275,3 +275,97 @@ def extract_grid_and_ocr(rect_H4: np.ndarray):
         ink_ratios.append(row_ratios)
 
     return grid, ink_ratios
+
+
+# ---- Validity check and visual debug rendering ----
+def validate_sudoku_grid(grid: List[List[int]]):
+    conflicts = set()
+
+    # Check Rows
+    for r in range(9):
+        seen = {}
+        for c in range(9):
+            val = grid[r][c]
+            if val != 0:
+                if val in seen:
+                    conflicts.add((r, c))
+                    conflicts.add((r, seen[val]))
+                else:
+                    seen[val] = c
+
+    # Check Columns
+    for c in range(9):
+        seen = {}
+        for r in range(9):
+            val = grid[r][c]
+            if val != 0:
+                if val in seen:
+                    conflicts.add((r, c))
+                    conflicts.add((seen[val], c))
+                else:
+                    seen[val] = r
+
+    # Check 3x3 Boxes
+    for box_row in range(3):
+        for box_col in range(3):
+            seen = {}
+            for r in range(box_row * 3, (box_row + 1) * 3):
+                for c in range(box_col * 3, (box_col + 1) * 3):
+                    val = grid[r][c]
+                    if val != 0:
+                        if val in seen:
+                            conflicts.add((r, c))
+                            conflicts.add(seen[val])
+                        else:
+                            seen[val] = (r, c)
+
+    verdict = "valid" if len(conflicts) == 0 else "invalid"
+    return verdict, sorted(list(conflicts))
+
+def render_debug_image(rect_H4: np.ndarray, grid: List[List[int]], conflicts: List[Tuple[int, int]], verdict: str):
+    debug_vis = rect_H4.copy()
+
+    # Draw 9x9 Grid Lines
+    for i in range(10):
+        pos = i * CELL_SIZE
+        thick = 3 if i % 3 == 0 else 1
+        color = (0, 0, 0)
+        cv2.line(debug_vis, (pos, 0), (pos, RECT_SIZE), color, thick)
+        cv2.line(debug_vis, (0, pos), (RECT_SIZE, pos), color, thick)
+
+    conflict_set = set(conflicts)
+
+    # Render Overlay Text & Conflict Boxes
+    for r in range(9):
+        for c in range(9):
+            val = grid[r][c]
+            x1, y1 = c * CELL_SIZE, r * CELL_SIZE
+            x2, y2 = (c + 1) * CELL_SIZE, (r + 1) * CELL_SIZE
+
+            is_conflict = (r, c) in conflict_set
+            if is_conflict:
+                # Fill conflicting cell with red tint overlay
+                overlay = debug_vis.copy()
+                cv2.rectangle(overlay, (x1, y1), (x2, y2), (0, 0, 255), -1)
+                cv2.addWeighted(overlay, 0.35, debug_vis, 0.65, 0, debug_vis)
+                cv2.rectangle(debug_vis, (x1, y1), (x2, y2), (0, 0, 255), 2)
+
+            if val != 0:
+                txt_color = (0, 0, 220) if is_conflict else (200, 30, 0)
+                # Center text inside cell
+                font = cv2.FONT_HERSHEY_SIMPLEX
+                scale = 0.9
+                thick = 2
+                (tw, th), _ = cv2.getTextSize(str(val), font, scale, thick)
+                tx = x1 + (CELL_SIZE - tw) // 2
+                ty = y1 + (CELL_SIZE + th) // 2
+                cv2.putText(debug_vis, str(val), (tx, ty), font, scale, txt_color, thick)
+
+    # Header status banner
+    banner_color = (0, 150, 0) if verdict == "valid" else (0, 0, 200)
+    cv2.putText(
+        debug_vis, f"Verdict: {verdict.upper()}", (15, 30),
+        cv2.FONT_HERSHEY_SIMPLEX, 0.8, banner_color, 2
+    )
+
+    return debug_vis
