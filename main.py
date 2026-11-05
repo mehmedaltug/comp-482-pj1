@@ -369,3 +369,96 @@ def render_debug_image(rect_H4: np.ndarray, grid: List[List[int]], conflicts: Li
     )
 
     return debug_vis
+
+
+# ---- Execution for single image ----
+def process_single_image(image_path: str, out_dir: str) -> Dict[str, Any]:
+    start_time = time.time()
+    base_name = os.path.splitext(os.path.basename(image_path))[0]
+    
+    img = cv2.imread(image_path)
+    if img is None:
+        print(f"Failed to read image: {image_path}")
+        return {"image": os.path.basename(image_path), "verdict": "not_found", "runtime_s": 0.0}
+
+    # Preprocessing
+    gray, thresh, scale = preprocess_image(img)
+
+    # Harris Corner Detection & Corner Selection
+    corners_proc, harris_norm, candidates = detect_harris_corners(gray, thresh)
+
+    # Save <name>_harris.png
+    harris_vis = draw_harris_debug(harris_norm, candidates, corners_proc)
+    cv2.imwrite(os.path.join(out_dir, f"{base_name}_harris.png"), harris_vis)
+
+    if corners_proc is None:
+        print(f"Could not isolate Sudoku corners in {image_path}")
+        result_data = {
+            "image": os.path.basename(image_path),
+            "corners": [],
+            "A3": [],
+            "A4": [],
+            "H4": [],
+            "a3_corner_err_px": None,
+            "a4_rms_px": None,
+            "grid": [],
+            "verdict": "not_found",
+            "runtime_s": round(time.time() - start_time, 4)
+        }
+        with open(os.path.join(out_dir, f"{base_name}_result.json"), "w") as f:
+            json.dump(result_data, f, indent=2)
+        return result_data
+
+    # Map corner coordinates back to original unscaled image resolution
+    corners_orig = corners_proc / scale
+
+    # Rectification (A3, A4, H4)
+    rect_A3, rect_A4, rect_H4, M_A3, M_A4, M_H4, a3_err, a4_rms = perform_rectifications(
+        img, corners_orig
+    )
+
+    # Save <name>_rect_A3.png, _rect_A4.png, _rect_H4.png
+    cv2.imwrite(os.path.join(out_dir, f"{base_name}_rect_A3.png"), rect_A3)
+    cv2.imwrite(os.path.join(out_dir, f"{base_name}_rect_A4.png"), rect_A4)
+    cv2.imwrite(os.path.join(out_dir, f"{base_name}_rect_H4.png"), rect_H4)
+
+    # Cell Extraction & Digit OCR (on H4 image)
+    grid, _ = extract_grid_and_ocr(rect_H4)
+
+    # Validity Verification
+    verdict, conflicts = validate_sudoku_grid(grid)
+
+    # Save <name>_grid.txt
+    grid_txt_path = os.path.join(out_dir, f"{base_name}_grid.txt")
+    with open(grid_txt_path, "w") as f:
+        for row in grid:
+            f.write("".join(map(str, row)) + "\n")
+
+    # Save <name>_debug.png
+    debug_vis = render_debug_image(rect_H4, grid, conflicts, verdict)
+    cv2.imwrite(os.path.join(out_dir, f"{base_name}_debug.png"), debug_vis)
+
+    runtime_s = round(time.time() - start_time, 4)
+
+    # Format result dictionary matching Appendix A schema
+    result_data = {
+        "image": os.path.basename(image_path),
+        "corners": corners_orig.tolist(),
+        "A3": M_A3.tolist(),
+        "A4": M_A4.tolist(),
+        "H4": M_H4.tolist(),
+        "a3_corner_err_px": round(a3_err, 4),
+        "a4_rms_px": round(a4_rms, 4),
+        "grid": grid,
+        "verdict": verdict,
+        "conflicting_cells": conflicts,
+        "runtime_s": runtime_s
+    }
+
+    # Save <name>_result.json
+    with open(os.path.join(out_dir, f"{base_name}_result.json"), "w") as f:
+        json.dump(result_data, f, indent=2)
+
+    print(f"Processed {image_path} in {runtime_s:.2f}s | Verdict: {verdict}")
+    return result_data
+
