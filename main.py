@@ -462,3 +462,35 @@ def process_single_image(image_path: str, out_dir: str) -> Dict[str, Any]:
     print(f"Processed {image_path} in {runtime_s:.2f}s | Verdict: {verdict}")
     return result_data
 
+
+# ---- Main function ----
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("input", type=str, nargs="?", help="Path to single input image file")
+    parser.add_argument("--batch", type=str, help="Path to directory containing input images (batch mode)")
+    parser.add_argument("--outdir", "-o", type=str, default="out/", help="Directory to save output files")
+
+    args = parser.parse_args()
+
+    if not args.input and not args.batch:
+        parser.print_help()
+        sys.exit(1)
+
+    os.makedirs(args.outdir, exist_ok=True)
+
+    if args.batch:
+        valid_exts = ("*.jpg", "*.jpeg", "*.png", "*.bmp")
+        image_files = []
+        for ext in valid_exts:
+            image_files.extend(glob.glob(os.path.join(args.batch, ext)))
+            image_files.extend(glob.glob(os.path.join(args.batch, ext.upper())))
+
+        image_files = sorted(list(set(image_files)))
+        print(f"--- Running Batch Mode on {len(image_files)} images ---")
+        for img_path in image_files:
+            process_single_image(img_path, args.outdir)
+    else:
+        process_single_image(args.input, args.outdir)
+
+if __name__ == "__main__":
+    main()
