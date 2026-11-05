@@ -235,3 +235,43 @@ def preprocess_cell_for_ocr(cell_gray: np.ndarray):
     padded[sy : sy + bh, sx : sx + bw] = digit_black_text
 
     return padded
+
+def extract_grid_and_ocr(rect_H4: np.ndarray):
+    gray = cv2.cvtColor(rect_H4, cv2.COLOR_BGR2GRAY) if len(rect_H4.shape) == 3 else rect_H4
+    
+    grid = []
+    ink_ratios = []
+    tess_config = "--psm 10 --oem 3 -c tessedit_char_whitelist=123456789"
+
+    for r in range(9):
+        row_digits = []
+        row_ratios = []
+        for c in range(9):
+            y1, y2 = r * CELL_SIZE, (r + 1) * CELL_SIZE
+            x1, x2 = c * CELL_SIZE, (c + 1) * CELL_SIZE
+            cell_gray = gray[y1:y2, x1:x2]
+
+            # EXPLICIT PRE-OCR EMPTY CHECK
+            if is_cell_empty(cell_gray):
+                row_digits.append(0)
+                row_ratios.append(0.0)
+            else:
+                # PREPARE CELL & RUN OCR
+                cell_ocr_input = preprocess_cell_for_ocr(cell_gray)
+                if cell_ocr_input is None:
+                    row_digits.append(0)
+                    row_ratios.append(0.0)
+                else:
+                    try:
+                        text = pyt.image_to_string(cell_ocr_input, config=tess_config).strip()
+                        digit = int(text) if text.isdigit() and len(text) == 1 else 0
+                    except Exception:
+                        digit = 0
+                    
+                    row_digits.append(digit)
+                    row_ratios.append(1.0)
+
+        grid.append(row_digits)
+        ink_ratios.append(row_ratios)
+
+    return grid, ink_ratios
