@@ -199,3 +199,39 @@ def is_cell_empty(cell_gray: np.ndarray):
         return True
 
     return False
+
+def preprocess_cell_for_ocr(cell_gray: np.ndarray):
+    h, w = cell_gray.shape
+    margin = int(h * 0.15)
+    crop = cell_gray[margin : h - margin, margin : w - margin]
+
+    # Relative binarization against local average paper intensity
+    mean_val = float(np.mean(crop))
+    binary = np.where(crop < (mean_val - 30), 255, 0).astype(np.uint8)
+
+    # Find candidate digit contour
+    contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        return None
+
+    # Keep largest connected component
+    c = max(contours, key=cv2.contourArea)
+    area = cv2.contourArea(c)
+    x, y, bw, bh = cv2.boundingRect(c)
+
+    # Noise filter: minimum size thresholds for printed digits
+    if area < 25 or bh < 10 or bw < 4:
+        return None
+
+    digit_crop = binary[y : y + bh, x : x + bw]
+
+    # Invert binary mask so digit is black on white paper background
+    digit_black_text = cv2.bitwise_not(digit_crop)
+
+    # Center digit inside a 48x48 canvas
+    padded = np.full((48, 48), 255, dtype=np.uint8)
+    sx = (48 - bw) // 2
+    sy = (48 - bh) // 2
+    padded[sy : sy + bh, sx : sx + bw] = digit_black_text
+
+    return padded
