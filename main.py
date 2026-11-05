@@ -58,3 +58,62 @@ def order_corners(pts: np.ndarray):
     rect[3] = pts[np.argmax(diff)]
 
     return rect
+
+def detect_harris_corners(gray: np.ndarray, thresh: np.ndarray):
+
+    # Compute Harris Response Map
+    gray_f32 = np.float32(gray)
+    block_size = max(2, int(round(gray.shape[1] * 0.003)))
+    harris_resp = cv2.cornerHarris(gray_f32, blockSize=block_size, ksize=3, k=0.04)  # pyright: ignore[reportCallIssue, reportArgumentType]
+    
+    # Normalize Harris map for visualization & thresholding
+    harris_norm = cv2.normalize(harris_resp, None, 0, 255, cv2.NORM_MINMAX, cv2.CV_8U)  # pyright: ignore[reportCallIssue, reportArgumentType]
+
+    # Extract Candidate Points via Non Maximum Suppression
+    resp_thresh = 0.01 * harris_resp.max()
+    harris_thresh = harris_resp > resp_thresh
+
+    # Perform NMS using dilation
+    dilated = cv2.dilate(harris_resp, None)  # pyright: ignore[reportCallIssue, reportArgumentType]
+    nms_mask = (harris_resp == dilated) & harris_thresh
+
+    candidate_coords = np.argwhere(nms_mask)  # returns (y, x)
+    candidates = candidate_coords[:, [1, 0]].astype(np.float32)  # convert to (x, y)
+
+    if len(candidates) < 4:
+        return None, harris_norm, candidates
+
+    # Restrict Search Area to the Largest Quadrilateral Region
+    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        return None, harris_norm, candidates
+
+    max_contour = max(contours, key=cv2.contourArea)
+    peri = cv2.arcLength(max_contour, True)
+    approx = cv2.approxPolyDP(max_contour, 0.02 * peri, True)
+
+    if len(approx) == 4:
+        rough_quad = approx.reshape(4, 2)
+    else:
+        hull = cv2.convexHull(max_contour).reshape(-1, 2)
+        s = hull.sum(axis=1)
+        diff = np.diff(hull, axis=1)
+        rough_quad = np.array([hull[np.argmin(s)], hull[np.argmin(diff)], hull[np.argmax(s)], hull[np.argmax(diff)]])
+
+    rough_quad = order_corners(rough_quad)
+
+    # Select the closest Harris candidate for each corner of the rough region
+    selected_corners = np.zeros((4, 2), dtype=np.float32)
+    for i in range(4):
+        target_pt = rough_quad[i]
+        dists = np.linalg.norm(candidates - target_pt, axis=1)
+        best_idx = np.argmin(dists)
+        selected_corners[i] = candidates[best_idx]
+
+    # Refine selected Harris corners with sub-pixel accuracy
+    criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.1)
+    corners_subpix = cv2.cornerSubPix(
+        gray, selected_corners.copy(), winSize=(5, 5), zeroZone=(-1, -1), criteria=criteria
+    )
+
+    return order_corners(corners_subpix), harris_norm, candidates
