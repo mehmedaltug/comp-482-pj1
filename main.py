@@ -169,3 +169,33 @@ def perform_rectifications(img: np.ndarray, corners: np.ndarray):
     rect_H4 = cv2.warpPerspective(img, M_H4, (RECT_SIZE, RECT_SIZE))
 
     return rect_A3, rect_A4, rect_H4, M_A3, M_A4, M_H4, a3_corner_err_px, a4_rms_px
+
+
+# ---- Cell extraction and digit OCR ----
+def is_cell_empty(cell_gray: np.ndarray):
+    h, w = cell_gray.shape
+    
+    # Isolate the central core to avoid outer grid lines
+    y1, y2 = int(h * 0.20), int(h * 0.80)
+    x1, x2 = int(w * 0.20), int(w * 0.80)
+    core = cell_gray[y1:y2, x1:x2]
+
+    # Contrast / Standard Deviation Check
+    # Blank paper has low standard deviation; printed digits create high contrast.
+    std_dev = float(np.std(core))
+    ptp_range = float(np.ptp(core))  # Max minus min pixel intensity
+
+    if std_dev < 12.0 or ptp_range < 40:
+        return True  # Uniform region = Empty Paper
+
+    # Relative Dark Pixel Count
+    # Measure pixels significantly darker than the local average paper color of this cell
+    mean_val = float(np.mean(core))
+    dark_pixels = np.sum(core < (mean_val - 35))
+    dark_ratio = dark_pixels / float(core.size)
+
+    # If less than 3.5% of core pixels are dark ink, deem empty
+    if dark_ratio < 0.035:
+        return True
+
+    return False
