@@ -41,3 +41,20 @@ def preprocess_image(img: np.ndarray):
     
     return gray, thresh, scale
 
+
+# ---- Harris corner detection & automatic corner selection ----
+def order_corners(pts: np.ndarray):
+    pts = pts.reshape((4, 2)).astype(np.float32)
+    rect = np.zeros((4, 2), dtype=np.float32)
+
+    # Top left has minimum (x + y), bottom right has maximum (x + y)
+    s = pts.sum(axis=1)
+    rect[0] = pts[np.argmin(s)]
+    rect[2] = pts[np.argmax(s)]
+
+    # Top right has minimum (y - x), bottom left has maximum (y - x)
+    diff = np.diff(pts, axis=1)
+    rect[1] = pts[np.argmin(diff)]
+    rect[3] = pts[np.argmax(diff)]
+
+    return rect
