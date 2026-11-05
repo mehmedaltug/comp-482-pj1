@@ -1,3 +1,4 @@
+from typing import Any, Optional, Dict, List, Tuple
 import os
 import sys
 import json
@@ -117,3 +118,22 @@ def detect_harris_corners(gray: np.ndarray, thresh: np.ndarray):
     )
 
     return order_corners(corners_subpix), harris_norm, candidates
+
+def draw_harris_debug(harris_norm: np.ndarray, candidates: np.ndarray, corners: Optional[np.ndarray]):
+    vis = cv2.cvtColor(harris_norm, cv2.COLOR_GRAY2BGR)
+
+    # Plot candidate points (blue circles)
+    for pt in candidates:
+        cv2.circle(vis, (int(pt[0]), int(pt[1])), 2, (255, 120, 0), -1)
+
+    # Highlight final 4 Harris corners (red circles with labels)
+    if corners is not None:
+        labels = ["TL", "TR", "BR", "BL"]
+        colors = [(0, 0, 255), (0, 255, 255), (0, 255, 0), (255, 0, 255)]
+        for pt, label, col in zip(corners, labels, colors):
+            x, y = int(pt[0]), int(pt[1])
+            cv2.circle(vis, (x, y), 6, col, -1)
+            cv2.circle(vis, (x, y), 8, (255, 255, 255), 2)
+            cv2.putText(vis, label, (x + 8, y + 8), cv2.FONT_HERSHEY_SIMPLEX, 0.6, col, 2)
+
+    return vis
