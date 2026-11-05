@@ -137,3 +137,35 @@ def draw_harris_debug(harris_norm: np.ndarray, candidates: np.ndarray, corners: 
             cv2.putText(vis, label, (x + 8, y + 8), cv2.FONT_HERSHEY_SIMPLEX, 0.6, col, 2)
 
     return vis
+
+
+# ---- Rectification (A3, A4, H4) & residual measurements ----
+def perform_rectifications(img: np.ndarray, corners: np.ndarray):
+    src = corners.astype(np.float32)  # [TL, TR, BR, BL]
+
+    # Target points for a 450x450 square
+    dst_pts = np.float32([[0, 0], [RECT_SIZE - 1, 0], [RECT_SIZE - 1, RECT_SIZE - 1], [0, RECT_SIZE - 1]])  # pyright: ignore[reportArgumentType]
+
+    # A3: 3 point Affine (using TL, TR, BL)
+    M_A3 = cv2.getAffineTransform(src[[0, 1, 3]], dst_pts[[0, 1, 3]])  # pyright: ignore[reportCallIssue, reportArgumentType]
+    rect_A3 = cv2.warpAffine(img, M_A3, (RECT_SIZE, RECT_SIZE))
+
+    # Calculate where original BR corner lands in A3 target space
+    br_src_homo = np.array([src[2][0], src[2][1], 1.0], dtype=np.float32)
+    br_mapped = M_A3 @ br_src_homo
+    a3_corner_err_px = float(np.linalg.norm(br_mapped - dst_pts[2]))  # pyright: ignore[reportCallIssue, reportArgumentType]
+
+    # A4: 4 point Least-Squares Affine
+    M_A4, _ = cv2.estimateAffine2D(src, dst_pts)  # pyright: ignore[reportCallIssue, reportArgumentType]
+    rect_A4 = cv2.warpAffine(img, M_A4, (RECT_SIZE, RECT_SIZE))
+
+    # Calculate RMS residual over all 4 corners for A4
+    src_homo = np.hstack([src, np.ones((4, 1), dtype=np.float32)])  # 4x3
+    mapped_A4 = (M_A4 @ src_homo.T).T  # 4x2
+    a4_rms_px = float(np.sqrt(np.mean(np.sum((mapped_A4 - dst_pts) ** 2, axis=1))))
+
+    # H4: 4 point Projective Homography
+    M_H4 = cv2.getPerspectiveTransform(src, dst_pts)  # pyright: ignore[reportCallIssue, reportArgumentType]
+    rect_H4 = cv2.warpPerspective(img, M_H4, (RECT_SIZE, RECT_SIZE))
+
+    return rect_A3, rect_A4, rect_H4, M_A3, M_A4, M_H4, a3_corner_err_px, a4_rms_px
